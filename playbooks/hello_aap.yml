@@ -1,0 +1,9 @@
+---
+- name: Test AAP execution
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Display a test message
+      ansible.builtin.debug:
+        msg: "GitHub -> AAP Project -> Execution Environment -> Job is working"
