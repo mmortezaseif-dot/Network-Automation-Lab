@@ -1,0 +1,19 @@
+---
+- name: Configure AAP lab
+  hosts: localhost
+  gather_facts: false
+
+  module_defaults:
+    group/ansible.platform.gateway:
+      aap_hostname: "{{ aap_hostname }}"
+      aap_username: "{{ aap_username }}"
+      aap_password: "{{ aap_password }}"
+      aap_validate_certs: "{{ aap_validate_certs }}"
+
+  tasks:
+
+    - name: Ensure lab organization exists
+      ansible.platform.organization:
+        name: Network-Automation-Lab
+        description: AAP 2.7 network automation training lab
+        state: present
