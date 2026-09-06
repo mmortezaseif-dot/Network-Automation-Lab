@@ -1,0 +1,13 @@
+---
+- name: Variable test
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Show selected site
+      ansible.builtin.debug:
+        msg: "Selected site is {{ site }}"
+
+    - name: Show NTP server
+      ansible.builtin.debug:
+        msg: "NTP server is {{ ntp_server }}"
