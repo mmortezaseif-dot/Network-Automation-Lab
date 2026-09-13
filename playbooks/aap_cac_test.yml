@@ -1,0 +1,12 @@
+---
+- name: Test AAP Configuration as Code
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Ensure test organization exists
+      ansible.platform.organization:
+        name: CaC-Test-Organization
+        description: Created by AAP Configuration as Code
+        state: present
