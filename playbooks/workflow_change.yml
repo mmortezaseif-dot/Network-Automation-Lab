@@ -1,0 +1,9 @@
+---
+- name: Simulate network change
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Change stage
+      ansible.builtin.debug:
+        msg: "STEP 2 - Network configuration change completed"
