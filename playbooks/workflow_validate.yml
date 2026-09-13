@@ -1,0 +1,9 @@
+---
+- name: Simulate post validation
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Validation stage
+      ansible.builtin.debug:
+        msg: "STEP 3 - Post-change validation completed"
