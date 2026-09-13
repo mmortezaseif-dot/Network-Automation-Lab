@@ -4,6 +4,12 @@
   connection: local
   gather_facts: false
 
+  module_defaults:
+    group/ansible.platform.gateway:
+      aap_hostname: "{{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') }}"
+      aap_token: "{{ lookup('ansible.builtin.env', 'AAP_TOKEN') }}"
+      aap_validate_certs: false
+
   tasks:
     - name: Ensure test organization exists
       ansible.platform.organization:
