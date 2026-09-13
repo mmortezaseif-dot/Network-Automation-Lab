@@ -1,0 +1,9 @@
+---
+- name: Simulate network backup
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Backup stage
+      ansible.builtin.debug:
+        msg: "STEP 1 - Network configuration backup completed"
