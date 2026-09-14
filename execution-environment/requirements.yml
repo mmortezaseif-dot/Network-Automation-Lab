@@ -3,5 +3,3 @@ collections:
   - name: cisco.ios
 
   - name: ansible.netcommon
-
-  - name: ansible.platform
