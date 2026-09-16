@@ -1,4 +1,12 @@
 ---
+- name: Check socat binary
+      ansible.builtin.command: /usr/bin/socat -V
+      register: socat_version
+      changed_when: false
+- name: Show socat version
+      ansible.builtin.debug:
+        var: socat_version.stdout_lines
+        
 - name: Cisco automation through GNS3 console
   hosts: localhost
   gather_facts: false
