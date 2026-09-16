@@ -1,0 +1,96 @@
+---
+- name: Validate Cisco R1 change
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+    funnel_port: 10000
+    local_relay_port: 10001
+
+    target_interface: "{{ net_change_interface | default('Loopback100') }}"
+    target_description: "{{ net_change_description | default('AAP-LAB-MANAGED') }}"
+
+  tasks:
+
+    - name: Cisco validation workflow
+      block:
+
+        - name: Start temporary TCP to TLS relay
+          ansible.builtin.shell: |
+            rm -f /tmp/aap-socat.log /tmp/aap-socat.pid
+
+            nohup /usr/bin/socat \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/aap-socat.log 2>&1 &
+
+            echo $! >/tmp/aap-socat.pid
+            sleep 2
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Collect validation data from Cisco R1
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - terminal length 0
+              - "show running-config interface {{ target_interface }}"
+              - show ip interface brief
+
+          register: validation_result
+          changed_when: false
+
+        - name: Display validation data
+          ansible.builtin.debug:
+            msg: "{{ validation_result.stdout.splitlines() }}"
+
+        - name: Verify interface and description
+          ansible.builtin.assert:
+            that:
+              - "('interface ' ~ target_interface) in validation_result.stdout"
+              - "('description ' ~ target_description) in validation_result.stdout"
+
+            success_msg: >-
+              Validation passed:
+              {{ target_interface }} exists and description is
+              {{ target_description }}.
+
+            fail_msg: >-
+              Validation failed:
+              expected configuration was not found on
+              {{ target_interface }}.
+
+        - name: Publish validation result
+          ansible.builtin.set_stats:
+            data:
+              net_validation_completed: true
+              net_validation_passed: true
+            per_host: false
+
+      always:
+
+        - name: Stop temporary relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
