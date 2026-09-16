@@ -1,0 +1,94 @@
+---
+- name: Run Cisco commands through GNS3 console
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+    funnel_port: 10000
+    local_relay_port: 10001
+
+  tasks:
+    - name: Cisco console automation
+      block:
+
+        - name: Clean previous relay files
+          ansible.builtin.shell: |
+            rm -f /tmp/aap-socat.log
+            rm -f /tmp/aap-socat.pid
+          changed_when: false
+
+        - name: Start TCP to TLS relay
+          ansible.builtin.shell: |
+            nohup /usr/bin/socat -d -d \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/aap-socat.log 2>&1 &
+
+            echo $! >/tmp/aap-socat.pid
+            sleep 2
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Wait for local relay
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            timeout: 10
+
+        - name: Run show commands on Cisco R1
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - terminal length 0
+              - show version
+              - show ip interface brief
+
+          register: cisco_output
+
+        - name: Display Cisco command output
+          ansible.builtin.debug:
+            var: cisco_output.output
+
+      rescue:
+
+        - name: Read socat log
+          ansible.builtin.shell: |
+            cat /tmp/aap-socat.log 2>/dev/null || true
+          register: socat_log
+          changed_when: false
+
+        - name: Display socat log
+          ansible.builtin.debug:
+            var: socat_log.stdout_lines
+
+        - name: Mark job as failed
+          ansible.builtin.fail:
+            msg: "Cisco console automation failed. Review the output above."
+
+      always:
+
+        - name: Stop socat relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
