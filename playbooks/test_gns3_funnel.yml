@@ -1,15 +1,23 @@
 ---
-- name: Test GNS3 Funnel connectivity
+- name: Test Tailscale Funnel TLS
   hosts: localhost
   gather_facts: false
 
   tasks:
-    - name: Check GNS3 console TCP port
-      ansible.builtin.wait_for:
-        host: desktop-evg076p.tailcec178b.ts.net
-        port: 10000
-        timeout: 15
+    - name: Test TLS connection to Funnel
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import socket
+        import ssl
 
-    - name: Connection successful
-      ansible.builtin.debug:
-        msg: "AAP can reach the Cisco GNS3 console through Tailscale Funnel"
+        host = "desktop-evg076p.tailec178b.ts.net"
+        port = 10000
+
+        context = ssl.create_default_context()
+
+        with socket.create_connection((host, port), timeout=15) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as tls:
+                print("TLS connection successful")
+                print("TLS version:", tls.version())
+        PY
+      changed_when: false
