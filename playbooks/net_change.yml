@@ -1,0 +1,81 @@
+---
+- name: Apply controlled Cisco change
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+    funnel_port: 10000
+    local_relay_port: 10001
+
+  tasks:
+    - name: Cisco change workflow
+      block:
+
+        - name: Start temporary TCP to TLS relay
+          ansible.builtin.shell: |
+            rm -f /tmp/aap-socat.log /tmp/aap-socat.pid
+
+            nohup /usr/bin/socat \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/aap-socat.log 2>&1 &
+
+            echo $! >/tmp/aap-socat.pid
+            sleep 2
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Configure Loopback100 on Cisco R1
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - terminal length 0
+              - configure terminal
+              - interface Loopback100
+              - description AAP-LAB-MANAGED
+              - no shutdown
+              - end
+              - show running-config interface Loopback100
+
+          register: change_result
+          changed_when: true
+
+        - name: Display change result
+          ansible.builtin.debug:
+            msg: "{{ change_result.stdout.splitlines() }}"
+
+        - name: Publish change result to workflow
+          ansible.builtin.set_stats:
+            data:
+              net_change_completed: true
+              net_change_interface: "Loopback100"
+              net_change_description: "AAP-LAB-MANAGED"
+            per_host: false
+
+      always:
+
+        - name: Stop temporary relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
