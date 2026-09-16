@@ -9,46 +9,50 @@
     local_relay_port: 10001
 
   tasks:
-    - name: Start local TLS relay
-      ansible.builtin.shell: |
-        nohup socat \
-          TCP-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
-          OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1 \
-          >/tmp/aap-socat.log 2>&1 &
-        echo $! >/tmp/aap-socat.pid
-      changed_when: false
+    - name: Run Cisco automation with temporary TLS relay
+      block:
 
-    - name: Wait for local relay
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: "{{ local_relay_port }}"
-        timeout: 10
+        - name: Start local TLS relay
+          ansible.builtin.shell: |
+            nohup socat \
+              TCP-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1 \
+              >/tmp/aap-socat.log 2>&1 &
+            echo $! >/tmp/aap-socat.pid
+          changed_when: false
 
-    - name: Run Cisco show commands
-      ansible.netcommon.telnet:
-        host: 127.0.0.1
-        port: "{{ local_relay_port }}"
-        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
-        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
-        login_prompt: "Username: "
-        password_prompt: "Password: "
-        prompts:
-          - "[>#]"
-        command:
-          - terminal length 0
-          - show version
-          - show ip interface brief
-      register: cisco_output
+        - name: Wait for local relay
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            timeout: 10
 
-    - name: Display Cisco output
-      ansible.builtin.debug:
-        var: cisco_output.output
+        - name: Run Cisco show commands
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            prompts:
+              - "[>#]"
+            command:
+              - terminal length 0
+              - show version
+              - show ip interface brief
+          register: cisco_output
 
-  always:
-    - name: Stop local TLS relay
-      ansible.builtin.shell: |
-        if [ -f /tmp/aap-socat.pid ]; then
-          kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
-          rm -f /tmp/aap-socat.pid
-        fi
-      changed_when: false
+        - name: Display Cisco output
+          ansible.builtin.debug:
+            var: cisco_output.output
+
+      always:
+
+        - name: Stop local TLS relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
