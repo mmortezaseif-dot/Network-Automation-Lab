@@ -1,81 +1,25 @@
 ---
-- name: Test TLS relay to GNS3
+- name: Verify Network Automation EE 1.1
   hosts: localhost
   gather_facts: false
 
-  vars:
-    funnel_host: "desktop-evg076p.tailec178b.ts.net"
-    funnel_port: 10000
-    local_relay_port: 10001
-
   tasks:
+    - name: Find socat
+      ansible.builtin.command:
+        cmd: sh -c 'command -v socat'
+      register: socat_path
+      changed_when: false
 
-    - name: Check socat
-      ansible.builtin.command: /usr/bin/socat -V
+    - name: Show socat path
+      ansible.builtin.debug:
+        var: socat_path.stdout
+
+    - name: Show socat version
+      ansible.builtin.command:
+        cmd: socat -V
       register: socat_version
       changed_when: false
 
-    - name: Show socat version
+    - name: Display socat version
       ansible.builtin.debug:
         var: socat_version.stdout_lines
-
-    - name: Test relay
-      block:
-
-        - name: Start local TLS relay
-          ansible.builtin.shell: |
-            rm -f /tmp/aap-socat.log /tmp/aap-socat.pid
-
-            nohup /usr/bin/socat -d -d \
-              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
-              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=0 \
-              >/tmp/aap-socat.log 2>&1 &
-
-            echo $! >/tmp/aap-socat.pid
-
-            sleep 2
-
-            if ! kill -0 "$(cat /tmp/aap-socat.pid)" 2>/dev/null; then
-              echo "socat stopped unexpectedly:"
-              cat /tmp/aap-socat.log
-              exit 1
-            fi
-          args:
-            executable: /bin/bash
-          changed_when: false
-
-        - name: Wait for local relay
-          ansible.builtin.wait_for:
-            host: 127.0.0.1
-            port: "{{ local_relay_port }}"
-            timeout: 10
-
-        - name: Relay works
-          ansible.builtin.debug:
-            msg: "Local TCP → TLS → Tailscale Funnel relay is working"
-
-      rescue:
-
-        - name: Read socat error log
-          ansible.builtin.shell: |
-            cat /tmp/aap-socat.log 2>/dev/null || true
-          register: socat_log
-          changed_when: false
-
-        - name: Show socat error
-          ansible.builtin.debug:
-            var: socat_log.stdout_lines
-
-        - name: Stop because relay failed
-          ansible.builtin.fail:
-            msg: "socat relay failed; see the log above"
-
-      always:
-
-        - name: Stop socat
-          ansible.builtin.shell: |
-            if [ -f /tmp/aap-socat.pid ]; then
-              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
-              rm -f /tmp/aap-socat.pid
-            fi
-          changed_when: false
