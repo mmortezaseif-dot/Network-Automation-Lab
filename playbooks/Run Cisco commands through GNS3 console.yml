@@ -65,7 +65,7 @@
 
         - name: Display Cisco command output
           ansible.builtin.debug:
-            var: cisco_output.output
+            var: cisco_output
 
       rescue:
 
