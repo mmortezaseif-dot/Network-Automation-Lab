@@ -1,0 +1,67 @@
+---
+- name: Persist validated Cisco configuration
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+    funnel_port: 10000
+    local_relay_port: 10001
+
+  tasks:
+    - name: Persist Cisco configuration
+      block:
+
+        - name: Start temporary TCP to TLS relay
+          ansible.builtin.shell: |
+            rm -f /tmp/aap-socat.log /tmp/aap-socat.pid
+
+            nohup /usr/bin/socat \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/aap-socat.log 2>&1 &
+
+            echo $! >/tmp/aap-socat.pid
+            sleep 2
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Save running configuration
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 2
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - write memory
+
+          register: persist_result
+          changed_when: true
+
+        - name: Show save result
+          ansible.builtin.debug:
+            msg: "{{ persist_result.stdout.splitlines() }}"
+
+      always:
+
+        - name: Stop temporary relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
