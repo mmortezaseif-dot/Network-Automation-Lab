@@ -1,0 +1,15 @@
+---
+- name: Test GNS3 Funnel connectivity
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Check GNS3 console TCP port
+      ansible.builtin.wait_for:
+        host: desktop-evg076p.tailcec178b.ts.net
+        port: 10000
+        timeout: 15
+
+    - name: Connection successful
+      ansible.builtin.debug:
+        msg: "AAP can reach the Cisco GNS3 console through Tailscale Funnel"
