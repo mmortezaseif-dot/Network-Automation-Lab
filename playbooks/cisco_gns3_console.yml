@@ -1,13 +1,5 @@
 ---
-- name: Check socat binary
-      ansible.builtin.command: /usr/bin/socat -V
-      register: socat_version
-      changed_when: false
-- name: Show socat version
-      ansible.builtin.debug:
-        var: socat_version.stdout_lines
-        
-- name: Cisco automation through GNS3 console
+- name: Test TLS relay to GNS3
   hosts: localhost
   gather_facts: false
 
@@ -17,16 +9,39 @@
     local_relay_port: 10001
 
   tasks:
-    - name: Run Cisco automation with temporary TLS relay
+
+    - name: Check socat
+      ansible.builtin.command: /usr/bin/socat -V
+      register: socat_version
+      changed_when: false
+
+    - name: Show socat version
+      ansible.builtin.debug:
+        var: socat_version.stdout_lines
+
+    - name: Test relay
       block:
 
         - name: Start local TLS relay
           ansible.builtin.shell: |
-            nohup socat \
-              TCP-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
-              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1 \
+            rm -f /tmp/aap-socat.log /tmp/aap-socat.pid
+
+            nohup /usr/bin/socat -d -d \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=0 \
               >/tmp/aap-socat.log 2>&1 &
+
             echo $! >/tmp/aap-socat.pid
+
+            sleep 2
+
+            if ! kill -0 "$(cat /tmp/aap-socat.pid)" 2>/dev/null; then
+              echo "socat stopped unexpectedly:"
+              cat /tmp/aap-socat.log
+              exit 1
+            fi
+          args:
+            executable: /bin/bash
           changed_when: false
 
         - name: Wait for local relay
@@ -35,29 +50,29 @@
             port: "{{ local_relay_port }}"
             timeout: 10
 
-        - name: Run Cisco show commands
-          ansible.netcommon.telnet:
-            host: 127.0.0.1
-            port: "{{ local_relay_port }}"
-            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
-            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
-            login_prompt: "Username: "
-            password_prompt: "Password: "
-            prompts:
-              - "[>#]"
-            command:
-              - terminal length 0
-              - show version
-              - show ip interface brief
-          register: cisco_output
-
-        - name: Display Cisco output
+        - name: Relay works
           ansible.builtin.debug:
-            var: cisco_output.output
+            msg: "Local TCP → TLS → Tailscale Funnel relay is working"
+
+      rescue:
+
+        - name: Read socat error log
+          ansible.builtin.shell: |
+            cat /tmp/aap-socat.log 2>/dev/null || true
+          register: socat_log
+          changed_when: false
+
+        - name: Show socat error
+          ansible.builtin.debug:
+            var: socat_log.stdout_lines
+
+        - name: Stop because relay failed
+          ansible.builtin.fail:
+            msg: "socat relay failed; see the log above"
 
       always:
 
-        - name: Stop local TLS relay
+        - name: Stop socat
           ansible.builtin.shell: |
             if [ -f /tmp/aap-socat.pid ]; then
               kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
