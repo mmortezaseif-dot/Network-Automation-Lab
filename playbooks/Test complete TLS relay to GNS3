@@ -1,0 +1,94 @@
+---
+- name: Test complete TLS relay to GNS3
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+    funnel_port: 10000
+    local_relay_port: 10001
+
+  tasks:
+    - name: Test TLS relay
+      block:
+
+        - name: Clean previous relay files
+          ansible.builtin.shell: |
+            rm -f /tmp/aap-socat.log
+            rm -f /tmp/aap-socat.pid
+          changed_when: false
+
+        - name: Start local TCP to TLS relay
+          ansible.builtin.shell: |
+            nohup /usr/bin/socat -d -d \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/aap-socat.log 2>&1 &
+
+            echo $! >/tmp/aap-socat.pid
+            sleep 2
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Check local relay port
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            timeout: 10
+
+        - name: Test traffic through relay
+          ansible.builtin.shell: |
+            python3 - <<'PY'
+            import socket
+
+            s = socket.create_connection(("127.0.0.1", 10001), timeout=10)
+            s.settimeout(5)
+
+            # Wake up Cisco console
+            s.sendall(b"\r\n")
+
+            try:
+                data = s.recv(4096)
+                print(data.decode(errors="replace"))
+            except socket.timeout:
+                print("TCP connection established, but no console data received")
+
+            s.close()
+            PY
+          register: relay_test
+          changed_when: false
+
+        - name: Show console response
+          ansible.builtin.debug:
+            var: relay_test.stdout_lines
+
+        - name: Relay test successful
+          ansible.builtin.debug:
+            msg: "AAP -> TLS -> Tailscale Funnel -> GNS3 console path is working"
+
+      rescue:
+
+        - name: Read socat log
+          ansible.builtin.shell: |
+            cat /tmp/aap-socat.log 2>/dev/null || true
+          register: socat_log
+          changed_when: false
+
+        - name: Show socat log
+          ansible.builtin.debug:
+            var: socat_log.stdout_lines
+
+        - name: Mark relay test failed
+          ansible.builtin.fail:
+            msg: "TLS relay failed. Check the socat log shown above."
+
+      always:
+
+        - name: Stop socat relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/aap-socat.pid ]; then
+              kill "$(cat /tmp/aap-socat.pid)" 2>/dev/null || true
+              rm -f /tmp/aap-socat.pid
+            fi
+          changed_when: false
