@@ -31,12 +31,7 @@
             executable: /bin/bash
           changed_when: false
 
-        - name: Wait for local relay
-          ansible.builtin.wait_for:
-            host: 127.0.0.1
-            port: "{{ local_relay_port }}"
-            timeout: 10
-
+    
         - name: Run show commands on Cisco R1
           ansible.netcommon.telnet:
             host: 127.0.0.1
@@ -62,10 +57,12 @@
               - show ip interface brief
 
           register: cisco_output
+          changed_when: false
+
 
         - name: Display Cisco command output
           ansible.builtin.debug:
-            var: cisco_output
+              msg: "{{ cisco_output.stdout.splitlines() }}"
 
       rescue:
 
