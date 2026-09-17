@@ -1,0 +1,55 @@
+---
+- name: Role-based Cisco pre-check
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  tasks:
+
+    - name: Run Cisco pre-check
+      block:
+
+        - name: Start reusable transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: start
+
+        - name: Collect Cisco information
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - terminal length 0
+              - show version
+              - show ip interface brief
+
+          register: precheck
+          changed_when: false
+          no_log: true
+
+        - name: Report pre-check
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }}: PRE-CHECK PASSED ✅"
+
+      always:
+
+        - name: Stop reusable transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: stop
