@@ -1,0 +1,92 @@
+---
+- name: Corporate multi-device Cisco pre-check
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+
+  # One router at a time
+  serial: 1
+
+  vars:
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+
+  tasks:
+
+    - name: Pre-check device
+      block:
+
+        - name: Start dedicated TLS relay for this router
+          ansible.builtin.shell: |
+            rm -f /tmp/socat-{{ inventory_hostname }}.log
+            rm -f /tmp/socat-{{ inventory_hostname }}.pid
+
+            nohup /usr/bin/socat -d -d \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/socat-{{ inventory_hostname }}.log 2>&1 &
+
+            echo $! >/tmp/socat-{{ inventory_hostname }}.pid
+
+            sleep 2
+
+            kill -0 "$(cat /tmp/socat-{{ inventory_hostname }}.pid)"
+          args:
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Collect router pre-check information
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - terminal length 0
+              - show version
+              - show ip interface brief
+
+          register: precheck
+          changed_when: false
+
+        - name: Verify Cisco did not reject commands
+          ansible.builtin.assert:
+            that:
+              - "'% Invalid input' not in precheck.stdout"
+            success_msg: >-
+              PRE-CHECK PASSED for {{ inventory_hostname }}
+              ({{ device_model }} / IOS {{ ios_version }})
+            fail_msg: >-
+              PRE-CHECK FAILED for {{ inventory_hostname }}
+
+        - name: Display device result
+          ansible.builtin.debug:
+            msg:
+              - "Device: {{ inventory_hostname }}"
+              - "Model: {{ device_model }}"
+              - "IOS: {{ ios_version }}"
+              - "{{ precheck.stdout.splitlines() }}"
+
+      always:
+
+        - name: Stop TLS relay for this router
+          ansible.builtin.shell: |
+            if [ -f /tmp/socat-{{ inventory_hostname }}.pid ]; then
+              kill "$(cat /tmp/socat-{{ inventory_hostname }}.pid)" \
+                2>/dev/null || true
+
+              rm -f /tmp/socat-{{ inventory_hostname }}.pid
+            fi
+          changed_when: false
