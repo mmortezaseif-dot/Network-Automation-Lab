@@ -1,1 +1,20 @@
+---
+- name: Start GNS3 TLS transport
+  ansible.builtin.shell: |
+    rm -f /tmp/socat-{{ inventory_hostname }}.pid
+    rm -f /tmp/socat-{{ inventory_hostname }}.log
 
+    nohup /usr/bin/socat \
+      TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+      OPENSSL:{{ gns3_funnel_host }}:{{ funnel_port }},verify=1,snihost={{ gns3_funnel_host }} \
+      >/tmp/socat-{{ inventory_hostname }}.log 2>&1 &
+
+    echo $! >/tmp/socat-{{ inventory_hostname }}.pid
+
+    sleep 2
+
+    kill -0 "$(cat /tmp/socat-{{ inventory_hostname }}.pid)"
+  args:
+    executable: /bin/bash
+
+  changed_when: false
