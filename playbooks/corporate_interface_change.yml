@@ -1,0 +1,9 @@
+---
+- name: Corporate Cisco interface change
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  roles:
+    - role: cisco_interface_description
