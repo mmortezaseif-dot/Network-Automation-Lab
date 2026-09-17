@@ -1,1 +1,8 @@
-
+---
+- name: Stop GNS3 TLS transport
+  ansible.builtin.shell: |
+    if [ -f /tmp/socat-{{ inventory_hostname }}.pid ]; then
+      kill "$(cat /tmp/socat-{{ inventory_hostname }}.pid)" 2>/dev/null || true
+      rm -f /tmp/socat-{{ inventory_hostname }}.pid
+    fi
+  changed_when: false
