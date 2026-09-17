@@ -1,0 +1,24 @@
+---
+- name: Save Cisco configuration
+  ansible.netcommon.telnet:
+    host: 127.0.0.1
+    port: "{{ local_relay_port }}"
+
+    user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+    password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+    login_prompt: "Username: "
+    password_prompt: "Password: "
+
+    send_newline: true
+    crlf: true
+    pause: 1
+    timeout: 60
+
+    prompts:
+      - "{{ cisco_prompt_regex }}"
+
+    command:
+      - write memory
+
+  no_log: true
