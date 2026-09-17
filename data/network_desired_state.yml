@@ -1,0 +1,12 @@
+---
+devices:
+
+  R1:
+    interfaces:
+      Loopback300:
+        description: AAP-CANARY-ROLLOUT
+
+  R2:
+    interfaces:
+      Loopback300:
+        description: AAP-CANARY-ROLLOUT
