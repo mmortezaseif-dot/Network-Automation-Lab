@@ -1,0 +1,133 @@
+---
+- name: Manage Cisco interface description
+  block:
+
+    - name: Start reusable transport
+      ansible.builtin.include_role:
+        name: gns3_console_transport
+        tasks_from: start
+
+    - name: Read current interface configuration
+      ansible.netcommon.telnet:
+        host: 127.0.0.1
+        port: "{{ local_relay_port }}"
+
+        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+        login_prompt: "Username: "
+        password_prompt: "Password: "
+
+        send_newline: true
+        crlf: true
+        pause: 1
+        timeout: 60
+
+        prompts:
+          - "{{ cisco_prompt_regex }}"
+
+        command:
+          - terminal length 0
+          - "show running-config interface {{ target_interface }}"
+
+      register: interface_before
+      changed_when: false
+      no_log: true
+
+    - name: Determine whether change is required
+      ansible.builtin.set_fact:
+        interface_change_required: >-
+          {{
+            target_description not in interface_before.stdout
+          }}
+
+    - name: Apply interface description
+      ansible.netcommon.telnet:
+        host: 127.0.0.1
+        port: "{{ local_relay_port }}"
+
+        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+        login_prompt: "Username: "
+        password_prompt: "Password: "
+
+        send_newline: true
+        crlf: true
+        pause: 1
+        timeout: 60
+
+        prompts:
+          - "{{ cisco_prompt_regex }}"
+
+        command:
+          - configure terminal
+          - "interface {{ target_interface }}"
+          - "description {{ target_description }}"
+          - end
+
+      when: interface_change_required
+      changed_when: true
+      notify: Save Cisco configuration
+      no_log: true
+
+    - name: Read configuration after change
+      ansible.netcommon.telnet:
+        host: 127.0.0.1
+        port: "{{ local_relay_port }}"
+
+        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+        login_prompt: "Username: "
+        password_prompt: "Password: "
+
+        send_newline: true
+        crlf: true
+        pause: 1
+        timeout: 60
+
+        prompts:
+          - "{{ cisco_prompt_regex }}"
+
+        command:
+          - terminal length 0
+          - "show running-config interface {{ target_interface }}"
+
+      register: interface_after
+      changed_when: false
+      no_log: true
+
+    - name: Validate desired state
+      ansible.builtin.assert:
+        that:
+          - target_interface in interface_after.stdout
+          - target_description in interface_after.stdout
+
+        success_msg: >-
+          {{ inventory_hostname }}: CONFIGURATION VERIFIED ✅
+
+        fail_msg: >-
+          {{ inventory_hostname }}: VALIDATION FAILED ❌
+
+    - name: Save configuration now if required
+      ansible.builtin.meta: flush_handlers
+      when: save_config
+
+    - name: Report final state
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{
+            'CHANGED AND VERIFIED ✅'
+            if interface_change_required
+            else
+            'ALREADY COMPLIANT ✅'
+          }}
+
+  always:
+
+    - name: Stop reusable transport
+      ansible.builtin.include_role:
+        name: gns3_console_transport
+        tasks_from: stop
