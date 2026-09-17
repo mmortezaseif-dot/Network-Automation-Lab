@@ -7,7 +7,7 @@
         name: gns3_console_transport
         tasks_from: start
 
-    - name: Read current interface configuration
+    - name: Apply and verify interface configuration in one console session
       ansible.netcommon.telnet:
         host: 127.0.0.1
         port: "{{ local_relay_port }}"
@@ -26,83 +26,49 @@
         prompts:
           - "{{ cisco_prompt_regex }}"
 
-        command:
-          - terminal length 0
-          - "show running-config interface {{ target_interface }}"
-
-      register: interface_before
-      changed_when: false
-      no_log: true
-
-    - name: Determine whether change is required
-      ansible.builtin.set_fact:
-        interface_change_required: >-
+        command: >-
           {{
-            target_description not in interface_before.stdout
+            [
+              'terminal length 0',
+              'show running-config interface ' ~ target_interface,
+              'configure terminal',
+              'interface ' ~ target_interface,
+              'description ' ~ target_description,
+              'no shutdown',
+              'end',
+              'show running-config interface ' ~ target_interface
+            ]
+            +
+            (['write memory'] if save_config else [])
           }}
 
-    - name: Apply interface description
-      ansible.netcommon.telnet:
-        host: 127.0.0.1
-        port: "{{ local_relay_port }}"
+      register: interface_session
 
-        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
-        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
-
-        login_prompt: "Username: "
-        password_prompt: "Password: "
-
-        send_newline: true
-        crlf: true
-        pause: 1
-        timeout: 60
-
-        prompts:
-          - "{{ cisco_prompt_regex }}"
-
-        command:
-          - configure terminal
-          - "interface {{ target_interface }}"
-          - "description {{ target_description }}"
-          - end
-
-      when: interface_change_required
-      changed_when: true
-      notify: Save Cisco configuration
-      no_log: true
-
-    - name: Read configuration after change
-      ansible.netcommon.telnet:
-        host: 127.0.0.1
-        port: "{{ local_relay_port }}"
-
-        user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
-        password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
-
-        login_prompt: "Username: "
-        password_prompt: "Password: "
-
-        send_newline: true
-        crlf: true
-        pause: 1
-        timeout: 60
-
-        prompts:
-          - "{{ cisco_prompt_regex }}"
-
-        command:
-          - terminal length 0
-          - "show running-config interface {{ target_interface }}"
-
-      register: interface_after
+    - name: Normalize Cisco output
+      ansible.builtin.set_fact:
+        normalized_output: >-
+          {{
+            interface_session.stdout
+            | regex_replace('\r', '')
+            | regex_replace('\x08', '')
+          }}
       changed_when: false
-      no_log: true
 
-    - name: Validate desired state
+    - name: Determine whether configuration was already present
+      ansible.builtin.set_fact:
+        interface_was_compliant: >-
+          {{
+            target_description
+            in normalized_output.split('configure terminal')[0]
+          }}
+      changed_when: false
+
+    - name: Verify final device state
       ansible.builtin.assert:
         that:
-          - target_interface in interface_after.stdout
-          - target_description in interface_after.stdout
+          - target_interface in normalized_output
+          - target_description in normalized_output
+          - "'% Invalid input' not in normalized_output"
 
         success_msg: >-
           {{ inventory_hostname }}: CONFIGURATION VERIFIED ✅
@@ -110,19 +76,15 @@
         fail_msg: >-
           {{ inventory_hostname }}: VALIDATION FAILED ❌
 
-    - name: Save configuration now if required
-      ansible.builtin.meta: flush_handlers
-      when: save_config
-
-    - name: Report final state
+    - name: Report final result
       ansible.builtin.debug:
         msg: >-
           {{ inventory_hostname }}:
           {{
-            'CHANGED AND VERIFIED ✅'
-            if interface_change_required
-            else
             'ALREADY COMPLIANT ✅'
+            if interface_was_compliant
+            else
+            'CHANGED AND VERIFIED ✅'
           }}
 
   always:
