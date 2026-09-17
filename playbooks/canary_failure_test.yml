@@ -1,0 +1,118 @@
+---
+- name: Canary failure and rollback test
+  hosts: canary_routers
+  gather_facts: false
+  connection: local
+
+  serial: 1
+  any_errors_fatal: true
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3.12
+
+    funnel_host: "desktop-evg076p.tailec178b.ts.net"
+
+    target_interface: "Loopback400"
+    target_description: "AAP-CANARY-TEST"
+
+    # عمداً اشتباه است تا Validation fail شود
+    expected_description: "WRONG-DESCRIPTION"
+
+  tasks:
+
+    - name: Canary transaction
+      block:
+
+        - name: Start TLS relay
+          ansible.builtin.shell: |
+            nohup /usr/bin/socat \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/socat-{{ inventory_hostname }}.log 2>&1 &
+
+            echo $! >/tmp/socat-{{ inventory_hostname }}.pid
+            sleep 2
+          changed_when: false
+
+        - name: Apply canary change
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - configure terminal
+              - "interface {{ target_interface }}"
+              - "description {{ target_description }}"
+              - no shutdown
+              - end
+              - "show running-config interface {{ target_interface }}"
+
+          register: canary_result
+          changed_when: true
+          no_log: true
+
+        - name: Validate canary
+          ansible.builtin.assert:
+            that:
+              - expected_description in canary_result.stdout
+
+            success_msg: "CANARY PASS"
+            fail_msg: "CANARY FAIL - rollback required"
+
+      rescue:
+
+        - name: Roll back failed canary
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+
+            prompts:
+              - "[>#]"
+
+            command:
+              - configure terminal
+              - "no interface {{ target_interface }}"
+              - end
+
+          no_log: true
+
+        - name: Report rollback
+          ansible.builtin.debug:
+            msg: "CANARY FAILED → ROLLBACK COMPLETED → ROLLOUT STOPPED"
+
+        - name: Stop workflow
+          ansible.builtin.fail:
+            msg: "Production rollout blocked because Canary validation failed."
+
+      always:
+
+        - name: Stop TLS relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/socat-{{ inventory_hostname }}.pid ]; then
+              kill "$(cat /tmp/socat-{{ inventory_hostname }}.pid)" 2>/dev/null || true
+              rm -f /tmp/socat-{{ inventory_hostname }}.pid
+            fi
+          changed_when: false
