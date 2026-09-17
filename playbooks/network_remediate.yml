@@ -1,0 +1,118 @@
+---
+- name: Remediate Cisco configuration drift
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  vars_files:
+    - ../data/network_desired_state.yml
+
+  tasks:
+
+    - name: Load desired state
+      ansible.builtin.set_fact:
+        target_interface: >-
+          {{ devices[inventory_hostname].interfaces.keys() | first }}
+
+        target_description: >-
+          {{ devices[inventory_hostname].interfaces[
+               devices[inventory_hostname].interfaces.keys() | first
+             ].description }}
+
+    - name: Remediation transaction
+      block:
+
+        - name: Start TLS relay
+          ansible.builtin.shell: |
+            nohup /usr/bin/socat \
+              TCP4-LISTEN:{{ local_relay_port }},bind=127.0.0.1,reuseaddr,fork \
+              OPENSSL:{{ funnel_host }}:{{ funnel_port }},verify=1,snihost={{ funnel_host }} \
+              >/tmp/socat-{{ inventory_hostname }}.log 2>&1 &
+
+            echo $! >/tmp/socat-{{ inventory_hostname }}.pid
+            sleep 2
+          changed_when: false
+
+        - name: Read current configuration
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+            prompts:
+              - "[>#]"
+            command:
+              - terminal length 0
+              - "show running-config interface {{ target_interface }}"
+
+          register: before_state
+          changed_when: false
+          no_log: true
+
+        - name: Decide whether device has drift
+          ansible.builtin.set_fact:
+            drift_detected: >-
+              {{
+                target_description not in before_state.stdout
+              }}
+
+        - name: Remediate drift
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 60
+            prompts:
+              - "[>#]"
+            command:
+              - configure terminal
+              - "interface {{ target_interface }}"
+              - "description {{ target_description }}"
+              - end
+              - "show running-config interface {{ target_interface }}"
+
+          register: remediation_result
+          when: drift_detected
+          changed_when: true
+          no_log: true
+
+        - name: Verify remediation
+          ansible.builtin.assert:
+            that:
+              - target_description in remediation_result.stdout
+            fail_msg: "{{ inventory_hostname }}: REMEDIATION FAILED"
+          when: drift_detected
+
+        - name: Report result
+          ansible.builtin.debug:
+            msg: >-
+              {{ inventory_hostname }}:
+              {{
+                'DRIFT REMEDIATED ✅'
+                if drift_detected
+                else
+                'ALREADY COMPLIANT ✅'
+              }}
+
+      always:
+
+        - name: Stop TLS relay
+          ansible.builtin.shell: |
+            if [ -f /tmp/socat-{{ inventory_hostname }}.pid ]; then
+              kill "$(cat /tmp/socat-{{ inventory_hostname }}.pid)" 2>/dev/null || true
+              rm -f /tmp/socat-{{ inventory_hostname }}.pid
+            fi
+          changed_when: false
