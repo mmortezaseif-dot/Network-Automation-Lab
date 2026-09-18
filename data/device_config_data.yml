@@ -1,0 +1,30 @@
+---
+devices:
+
+  R1:
+    hostname: R1
+    site: NUREMBERG
+    loopbacks:
+      - id: 600
+        description: MANAGEMENT
+        ip_address: 10.60.1.1
+        subnet_mask: 255.255.255.255
+
+      - id: 601
+        description: MONITORING
+        ip_address: 10.61.1.1
+        subnet_mask: 255.255.255.255
+
+  R2:
+    hostname: R2
+    site: NUREMBERG
+    loopbacks:
+      - id: 600
+        description: MANAGEMENT
+        ip_address: 10.60.2.1
+        subnet_mask: 255.255.255.255
+
+      - id: 601
+        description: MONITORING
+        ip_address: 10.61.2.1
+        subnet_mask: 255.255.255.255
