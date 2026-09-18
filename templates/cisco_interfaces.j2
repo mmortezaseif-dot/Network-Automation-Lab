@@ -1,0 +1,9 @@
+hostname {{ device.hostname }}
+!
+{% for interface in device.loopbacks %}
+interface Loopback{{ interface.id }}
+ description {{ interface.description }}
+ ip address {{ interface.ip_address }} {{ interface.subnet_mask }}
+ no shutdown
+!
+{% endfor %}
