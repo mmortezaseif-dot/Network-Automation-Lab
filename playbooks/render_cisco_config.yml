@@ -1,0 +1,49 @@
+---
+- name: Generate Cisco configurations from structured data
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+
+  vars_files:
+    - ../data/device_config_data.yml
+
+  tasks:
+
+    - name: Validate device exists in source data
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in devices
+
+        fail_msg: >-
+          {{ inventory_hostname }} is missing from device_config_data.yml
+
+    - name: Load data for current device
+      ansible.builtin.set_fact:
+        device: "{{ devices[inventory_hostname] }}"
+
+    - name: Render Cisco configuration
+      ansible.builtin.set_fact:
+        rendered_config: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              '../templates/cisco_interfaces.j2'
+            )
+          }}
+
+    - name: Validate generated configuration
+      ansible.builtin.assert:
+        that:
+          - "'hostname ' ~ device.hostname in rendered_config"
+          - "'interface Loopback600' in rendered_config"
+
+        success_msg: >-
+          {{ inventory_hostname }}: CONFIG GENERATED AND VALIDATED ✅
+
+        fail_msg: >-
+          {{ inventory_hostname }}: CONFIG GENERATION FAILED ❌
+
+    - name: Show generated configuration
+      ansible.builtin.debug:
+        msg: "{{ rendered_config.splitlines() }}"
+      when: show_generated_config | default(false) | bool
