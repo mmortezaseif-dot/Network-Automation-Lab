@@ -1,0 +1,82 @@
+---
+- name: Roll back lab-managed Cisco interfaces
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  vars_files:
+    - ../data/device_config_data.yml
+
+  tasks:
+
+    - name: Require explicit destructive rollback permission
+      ansible.builtin.assert:
+        that:
+          - allow_lab_rollback | default(false) | bool
+
+        fail_msg: >-
+          Destructive lab rollback was not explicitly authorized.
+
+    - name: Select current device data
+      ansible.builtin.set_fact:
+        device: "{{ devices[inventory_hostname] }}"
+
+    - name: Initialize rollback commands
+      ansible.builtin.set_fact:
+        rollback_commands:
+          - configure terminal
+
+    - name: Build rollback command list
+      ansible.builtin.set_fact:
+        rollback_commands: >-
+          {{
+            rollback_commands
+            +
+            [
+              'no interface Loopback' ~ item.id
+            ]
+          }}
+      loop: "{{ device.loopbacks }}"
+
+    - name: Finish rollback command list
+      ansible.builtin.set_fact:
+        rollback_commands: "{{ rollback_commands + ['end'] }}"
+
+    - name: Perform rollback
+      block:
+
+        - name: Start GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: start
+
+        - name: Remove lab-managed interfaces
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 120
+            prompts:
+              - "[>#]"
+            command: "{{ rollback_commands }}"
+          changed_when: true
+
+        - name: Report rollback
+          ansible.builtin.debug:
+            msg: >-
+              {{ inventory_hostname }}:
+              LAB ROLLBACK EXECUTED ⚠️
+
+      always:
+
+        - name: Stop GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: stop
