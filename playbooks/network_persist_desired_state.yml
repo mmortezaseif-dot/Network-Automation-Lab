@@ -1,0 +1,113 @@
+---
+- name: Persist validated Cisco desired state
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  vars_files:
+    - ../data/device_config_data.yml
+
+  tasks:
+
+    - name: Verify device data exists
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in devices
+
+    - name: Select current device data
+      ansible.builtin.set_fact:
+        device: "{{ devices[inventory_hostname] }}"
+
+    - name: Build expected configuration lines
+      ansible.builtin.set_fact:
+        expected_lines: >-
+          {{
+            expected_lines | default([])
+            +
+            [
+              'interface Loopback' ~ item.id,
+              'description ' ~ item.description,
+              'ip address ' ~ item.ip_address ~ ' ' ~ item.subnet_mask
+            ]
+          }}
+      loop: "{{ device.loopbacks }}"
+
+    - name: Persist and verify configuration
+      block:
+
+        - name: Start GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: start
+
+        - name: Save configuration and read startup config
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 120
+            prompts:
+              - "[>#]"
+            command:
+              - terminal length 0
+              - write memory
+              - show startup-config
+          register: persist_session
+          changed_when: true
+
+        - name: Normalize startup configuration
+          ansible.builtin.set_fact:
+            normalized_startup: >-
+              {{
+                persist_session.stdout
+                | regex_replace('\r', '')
+                | regex_replace('\x08', '')
+              }}
+
+        - name: Extract relevant startup configuration lines
+          ansible.builtin.set_fact:
+            startup_lines: >-
+              {{
+                normalized_startup.splitlines()
+                | map('trim')
+                | select(
+                    'match',
+                    '^(interface Loopback[0-9]+|description .+|ip address .+)$'
+                  )
+                | list
+              }}
+
+        - name: Find configuration not persisted
+          ansible.builtin.set_fact:
+            missing_persisted_lines: >-
+              {{
+                expected_lines
+                | difference(startup_lines)
+              }}
+
+        - name: Verify configuration is persisted
+          ansible.builtin.assert:
+            that:
+              - missing_persisted_lines | length == 0
+
+            success_msg: >-
+              {{ inventory_hostname }}:
+              STARTUP CONFIG VERIFIED ✅
+
+            fail_msg: >-
+              {{ inventory_hostname }}:
+              CONFIGURATION WAS NOT FULLY PERSISTED ❌
+
+      always:
+
+        - name: Stop GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: stop
