@@ -98,6 +98,22 @@
 
       always:
 
+        - name: Enforce desired state when strict validation is enabled
+  ansible.builtin.assert:
+    that:
+      - missing_lines | length == 0
+      - unexpected_lines | length == 0
+
+    success_msg: >-
+      {{ inventory_hostname }}: DESIRED STATE VERIFIED ✅
+
+    fail_msg: >-
+      {{ inventory_hostname }}: DRIFT REMAINS AFTER CHANGE ❌
+
+  when: fail_on_drift | default(false) | bool
+  
+        
+        
         - name: Stop GNS3 transport
           ansible.builtin.include_role:
             name: gns3_console_transport
