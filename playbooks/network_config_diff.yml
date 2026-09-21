@@ -1,0 +1,137 @@
+---
+- name: Compare desired and actual Cisco configuration
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+  serial: 1
+
+  vars_files:
+    - ../data/device_config_data.yml
+
+  tasks:
+
+    - name: Verify device data exists
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in devices
+        fail_msg: >-
+          {{ inventory_hostname }} has no desired-state data
+
+    - name: Select desired data for current router
+      ansible.builtin.set_fact:
+        device: "{{ devices[inventory_hostname] }}"
+
+    - name: Build show commands
+      ansible.builtin.set_fact:
+        show_commands: >-
+          {{
+            show_commands | default([])
+            +
+            [
+              'show running-config | section ^interface Loopback'
+              ~ item.id
+            ]
+          }}
+      loop: "{{ device.loopbacks }}"
+
+    - name: Build expected configuration lines
+      ansible.builtin.set_fact:
+        expected_lines: >-
+          {{
+            expected_lines | default([])
+            +
+            [
+              'interface Loopback' ~ item.id,
+              'description ' ~ item.description,
+              'ip address ' ~ item.ip_address ~ ' ' ~ item.subnet_mask
+            ]
+          }}
+      loop: "{{ device.loopbacks }}"
+
+    - name: Read actual Cisco configuration
+      block:
+
+        - name: Start GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: start
+
+        - name: Read targeted interfaces
+          ansible.netcommon.telnet:
+            host: 127.0.0.1
+            port: "{{ local_relay_port }}"
+            user: "{{ lookup('ansible.builtin.env', 'CISCO_USER') }}"
+            password: "{{ lookup('ansible.builtin.env', 'CISCO_PASSWORD') }}"
+            login_prompt: "Username: "
+            password_prompt: "Password: "
+            send_newline: true
+            crlf: true
+            pause: 1
+            timeout: 120
+            prompts:
+              - "[>#]"
+            command: "{{ ['terminal length 0'] + show_commands }}"
+          register: actual_session
+          changed_when: false
+
+        - name: Normalize Cisco console output
+          ansible.builtin.set_fact:
+            normalized_output: >-
+              {{
+                actual_session.stdout
+                | regex_replace('\r', '')
+                | regex_replace('\x08', '')
+              }}
+
+        - name: Extract actual configuration lines
+          ansible.builtin.set_fact:
+            actual_lines: >-
+              {{
+                normalized_output.splitlines()
+                | map('trim')
+                | select(
+                    'match',
+                    '^(interface Loopback[0-9]+|description .+|ip address .+)$'
+                  )
+                | list
+              }}
+
+      always:
+
+        - name: Stop GNS3 transport
+          ansible.builtin.include_role:
+            name: gns3_console_transport
+            tasks_from: stop
+
+    - name: Initialize diff results
+      ansible.builtin.set_fact:
+        missing_lines: []
+        unexpected_lines: []
+
+    - name: Find desired lines missing from device
+      ansible.builtin.set_fact:
+        missing_lines: "{{ missing_lines + [item] }}"
+      loop: "{{ expected_lines }}"
+      when: item not in actual_lines
+
+    - name: Find unexpected current lines
+      ansible.builtin.set_fact:
+        unexpected_lines: "{{ unexpected_lines + [item] }}"
+      loop: "{{ actual_lines }}"
+      when: item not in expected_lines
+
+    - name: Report compliant device
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: NO DRIFT ✅"
+      when:
+        - missing_lines | length == 0
+        - unexpected_lines | length == 0
+
+    - name: Report configuration drift
+      ansible.builtin.debug:
+        msg:
+          - "{{ inventory_hostname }}: DRIFT DETECTED ⚠️"
+          - "Desired but missing: {{ missing_lines }}"
+          - "Current but unexpected: {{ unexpected_lines }}"
+      when:
+        - missing_lines | length > 0 or unexpected_lines | length > 0
