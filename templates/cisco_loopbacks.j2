@@ -1,0 +1,7 @@
+{% for loopback in device.loopbacks %}
+interface Loopback{{ loopback.id }}
+ description {{ loopback.description }}
+ ip address {{ loopback.ip_address }} {{ loopback.subnet_mask }}
+ no shutdown
+!
+{% endfor %}
