@@ -1,0 +1,47 @@
+---
+- name: Render multi-device Cisco configuration
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+
+  vars_files:
+    - ../data/device_config_data.yml
+
+  tasks:
+
+    - name: Verify device data exists
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in devices
+        fail_msg: >-
+          No configuration data exists for {{ inventory_hostname }}
+
+    - name: Select data for current router
+      ansible.builtin.set_fact:
+        device: "{{ devices[inventory_hostname] }}"
+
+    - name: Render desired Cisco configuration
+      ansible.builtin.set_fact:
+        rendered_config: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              playbook_dir ~ '/../templates/cisco_loopbacks.j2'
+            )
+          }}
+
+    - name: Validate generated configuration
+      ansible.builtin.assert:
+        that:
+          - rendered_config | length > 0
+          - "'interface Loopback' in rendered_config"
+          - "'ip address' in rendered_config"
+        success_msg: >-
+          {{ inventory_hostname }}: CONFIG RENDERED ✅
+        fail_msg: >-
+          {{ inventory_hostname }}: CONFIG INVALID ❌
+
+    - name: Show rendered configuration when requested
+      ansible.builtin.debug:
+        msg: "{{ rendered_config.splitlines() }}"
+      when: show_config | default(false) | bool
