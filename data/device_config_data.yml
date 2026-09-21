@@ -2,29 +2,27 @@
 devices:
 
   R1:
-    hostname: R1
     site: NUREMBERG
     loopbacks:
-      - id: 600
-        description: MANAGEMENT
-        ip_address: 10.60.1.1
+      - id: 700
+        description: MGMT-R1
+        ip_address: 10.70.1.1
         subnet_mask: 255.255.255.255
 
-      - id: 601
-        description: MONITORING
-        ip_address: 10.61.1.1
+      - id: 701
+        description: MONITORING-R1
+        ip_address: 10.71.1.1
         subnet_mask: 255.255.255.255
 
   R2:
-    hostname: R2
     site: NUREMBERG
     loopbacks:
-      - id: 600
-        description: MANAGEMENT
-        ip_address: 10.60.2.1
+      - id: 700
+        description: MGMT-R2
+        ip_address: 10.70.2.1
         subnet_mask: 255.255.255.255
 
-      - id: 601
-        description: MONITORING
-        ip_address: 10.61.2.1
+      - id: 701
+        description: MONITORING-R2
+        ip_address: 10.71.2.1
         subnet_mask: 255.255.255.255
