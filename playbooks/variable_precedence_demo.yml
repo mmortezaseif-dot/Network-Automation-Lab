@@ -1,0 +1,13 @@
+---
+- name: Demonstrate variable precedence
+  hosts: cisco_routers
+  gather_facts: false
+  connection: local
+
+  tasks:
+
+    - name: Show final variable value
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          training_value={{ training_value | default('UNDEFINED') }}
