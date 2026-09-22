@@ -1,0 +1,17 @@
+---
+- name: EDA range demo
+  hosts: all
+
+  sources:
+    - name: Generate test events
+      eda.builtin.range:
+        limit: 5
+        delay: 5
+
+  rules:
+    - name: Match event number two
+      condition: event.i == 2
+      action:
+        debug:
+          msg: "EDA EVENT MATCHED ✅ event.i={{ event.i }}"
+
