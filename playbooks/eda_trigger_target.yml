@@ -1,0 +1,12 @@
+---
+- name: EDA triggered controller job
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  tasks:
+    - name: Confirm that EDA launched this job
+      ansible.builtin.debug:
+        msg:
+          - "CONTROLLER JOB STARTED BY EDA ✅"
+          - "EDA event number = {{ ansible_eda.event.i }}"
