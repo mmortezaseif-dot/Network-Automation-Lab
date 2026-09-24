@@ -1,0 +1,12 @@
+cat > playbooks/notifier_test.yml <<'EOF'
+---
+- name: AAP notifier test
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  tasks:
+    - name: Confirm successful notifier test
+      ansible.builtin.debug:
+        msg: "AAP NOTIFIER TEST ✅"
+EOF
